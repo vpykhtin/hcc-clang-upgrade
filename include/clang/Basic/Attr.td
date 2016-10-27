@@ -762,6 +762,12 @@ def OpenCLNoSVM : Attr {
   let ASTNode = 0;
 }
 
+def HCCGroupAddressSpace : TypeAttr {
+  let Spellings = [GNU<"hcc_group">];
+  let Subjects = SubjectList<[Var]>;
+  let Documentation = [Undocumented];
+}
+
 def RenderScriptKernel : Attr {
   let Spellings = [GNU<"kernel">];
   let Subjects = SubjectList<[Function]>;

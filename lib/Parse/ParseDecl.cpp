@@ -1982,19 +1982,14 @@ Decl *Parser::ParseDeclarationAfterDeclarator(
 
 // Check if a given Declarator is a tile_static variable
 // Currently tile_static is a macro which expands to:
-//   static __attribute__((section("clamp_opencl_local")))
+//   static __attribute__((address_space(hcc_group)))
 // We check if the Declarator has such function attribute.
 static bool IsTileStatic(Declarator &D) {
   if (D.getDeclSpec().hasAttributes()) {
     AttributeList *attr = D.getDeclSpec().getAttributes().getList();
     while (attr) {
-      if (attr->getName()->isStr("section")) {
-        for (unsigned i = 0; i < attr->getNumArgs(); ++i) {
-          StringLiteral *s = dyn_cast_or_null<StringLiteral>(attr->getArgAsExpr(i));
-          if (s && s->getString() == "clamp_opencl_local") {
-            return true;
-          }
-        }
+      if (attr->getName()->isStr("hcc_group")) {
+        return true;
       }
       attr = attr->getNext();
     }

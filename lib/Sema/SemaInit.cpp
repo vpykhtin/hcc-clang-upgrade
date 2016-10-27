@@ -5681,14 +5681,11 @@ static bool TryOCLZeroEventInitialization(Sema &S,
 
 // Check if a given InitializedEntity is a tile_static variable
 // Currently tile_static is a macro which expands to:
-//   static __attribute__((section("clamp_opencl_local")))
+//   static __attribute__((hcc_group))
 // We check if the InitializedEntity has such function attribute.
 static bool IsTileStatic(const InitializedEntity &Entity) {
-  if (Entity.getDecl() && Entity.getDecl()->hasAttr<SectionAttr>()) {
-    SectionAttr *sa = Entity.getDecl()->getAttr<SectionAttr>();
-    if (sa && sa->getName() == "clamp_opencl_local") {
-      return true;
-    }
+  if (Entity.getDecl() && (Entity.getDecl()->getType().getAddressSpace() == LangAS::hcc_group)) {
+    return true;
   }
   return false;
 }
