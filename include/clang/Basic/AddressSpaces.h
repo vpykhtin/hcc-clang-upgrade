@@ -36,6 +36,10 @@ enum ID {
   cuda_constant,
   cuda_shared,
 
+  hcc_global,
+  hcc_group,
+  hcc_generic,
+
   Last,
   Count = Last-Offset
 };

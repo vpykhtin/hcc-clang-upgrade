@@ -703,13 +703,16 @@ static const LangAS::Map *getAddressSpaceMap(const TargetInfo &T,
     // The fake address space map must have a distinct entry for each
     // language-specific address space.
     static const unsigned FakeAddrSpaceMap[] = {
-      1, // opencl_global
-      2, // opencl_local
-      3, // opencl_constant
-      4, // opencl_generic
-      5, // cuda_device
-      6, // cuda_constant
-      7  // cuda_shared
+       1, // opencl_global
+       2, // opencl_local
+       3, // opencl_constant
+       4, // opencl_generic
+       5, // cuda_device
+       6, // cuda_constant
+       7, // cuda_shared
+       8, // hcc_global
+       9, // hcc_group
+      10, // hcc_generic
     };
     return &FakeAddrSpaceMap;
   } else {

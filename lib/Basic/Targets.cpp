@@ -1743,6 +1743,9 @@ static const unsigned NVPTXAddrSpaceMap[] = {
     1, // cuda_device
     4, // cuda_constant
     3, // cuda_shared
+    1, // hcc_global
+    3, // hcc_group
+    0, // hcc_generic
 };
 
 class NVPTXTargetInfo : public TargetInfo {
@@ -1983,7 +1986,10 @@ static const unsigned AMDGPUAddrSpaceMap[] = {
   4,    // opencl_generic
   1,    // cuda_device
   2,    // cuda_constant
-  3     // cuda_shared
+  3,    // cuda_shared
+  1,    // hcc_global
+  3,    // hcc_group
+  4,    // hcc_generic
 };
 
 // If you edit the description strings, make sure you update
@@ -7190,7 +7196,10 @@ static const unsigned TCEOpenCLAddrSpaceMap[] = {
     0, // opencl_generic
     0, // cuda_device
     0, // cuda_constant
-    0  // cuda_shared
+    0, // cuda_shared
+    3, // hcc_global
+    4, // hcc_group
+    0, // hcc_generic
 };
 
 class TCETargetInfo : public TargetInfo {
@@ -8109,7 +8118,10 @@ static const unsigned SPIRAddrSpaceMap[] = {
     4, // opencl_generic
     0, // cuda_device
     0, // cuda_constant
-    0  // cuda_shared
+    0, // cuda_shared
+    1, // hcc_global
+    3, // hcc_group
+    4, // hcc_generic  
 };
 class SPIRTargetInfo : public TargetInfo {
 public:
