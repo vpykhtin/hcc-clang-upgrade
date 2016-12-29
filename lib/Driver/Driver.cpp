@@ -1595,22 +1595,12 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
         // C++ AMP-specific
         // For C++ source files, duplicate the input so we launch the compiler twice
         // 1 for GPU compilation (TY_CXX_AMP), 1 for CPU compilation (TY_CXX)
-        if (IsCXXAMP(Args) && (Ty == types::TY_CXX)) {
+        if (false && IsCXXAMP(Args) && (Ty == types::TY_CXX)) {
           Arg *FinalPhaseArg;
           phases::ID FinalPhase = getFinalPhase(Args, &FinalPhaseArg);
           switch (FinalPhase) {
             // -E
             case phases::Preprocess:
-              if (Args.hasArg(options::OPT_cxxamp_kernel_mode)) {
-                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
-              } else if (Args.hasArg(options::OPT_cxxamp_cpu_mode)) {
-                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
-              } else {
-                Inputs.push_back(std::make_pair(Ty, A));
-              }
-            break;
-
-            // -S
             case phases::Backend:
               if (Args.hasArg(options::OPT_cxxamp_kernel_mode)) {
                 Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
@@ -1621,23 +1611,11 @@ void Driver::BuildInputs(const ToolChain &TC, DerivedArgList &Args,
               }
             break;
 
-            // -c
             case phases::Assemble:
-              if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
-                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
-              if(Args.hasArg(options::OPT_hc_mode)) {
-                Inputs.push_back(std::make_pair(types::TY_HC_HOST, A));
-                Inputs.push_back(std::make_pair(types::TY_HC_KERNEL, A));
-              } else {
-                Inputs.push_back(std::make_pair(Ty, A));
-                Inputs.push_back(std::make_pair(types::TY_CXX_AMP, A));
-              }
-            break;
-
-            // build executable
             case phases::Link:
               if (Args.hasArg(options::OPT_cxxamp_cpu_mode))
-                  Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+                Inputs.push_back(std::make_pair(types::TY_CXX_AMP_CPU, A));
+
               if(Args.hasArg(options::OPT_hc_mode)) {
                 Inputs.push_back(std::make_pair(types::TY_HC_HOST, A));
                 Inputs.push_back(std::make_pair(types::TY_HC_KERNEL, A));
@@ -2190,6 +2168,84 @@ class OffloadingActionBuilder final {
     }
   };
 
+  /// \brief HCC/AMP action builder.
+  class HCCActionBuilder final : public DeviceActionBuilder {
+    /// The actions for the current input.
+    ActionList DeviceActions;
+    bool IsActive = false;
+
+  public:
+    HCCActionBuilder(Compilation &C, DerivedArgList &Args,
+      const Driver::InputList &Inputs)
+      : DeviceActionBuilder(C, Args, Inputs, Action::OFK_HCC) {}
+
+    ActionBuilderReturnCode getDeviceDependences(
+        OffloadAction::DeviceDependences &DA,
+        phases::ID CurPhase, phases::ID FinalPhase,
+        PhasesTy &Phases) override {
+
+      if (!IsActive)
+        return ABRT_Inactive;
+
+      // If we don't have more CUDA actions, we don't have any dependences to
+      // create for the host.
+      if (DeviceActions.empty())
+        return ABRT_Success;
+
+      if (CurPhase > phases::Backend) {
+        // If we are past the backend phase and still have a device action, we
+        // don't have to do anything as this action is already a device
+        // top-level action.
+        return ABRT_Success;
+      }
+
+      assert(CurPhase < phases::Backend && "Generating single CUDA "
+        "instructions should only occur "
+        "before the backend phase!");
+
+      // By default, we produce an action for each device arch.
+      for (Action *&A : DeviceActions)
+        A = C.getDriver().ConstructPhaseAction(C, Args, CurPhase, A);
+
+      return ABRT_Success;
+    }
+
+    ActionBuilderReturnCode addDeviceDepences(Action *HostAction) override {
+      if (!isa<InputAction>(HostAction) || 
+          HostAction->getType() != types::TY_CXX) {
+        IsActive = false;
+        return ABRT_Inactive;
+      }
+
+      DeviceActions.push_back(
+        C.MakeAction<InputAction>(
+          cast<InputAction>(HostAction)->getInputArg(),
+          types::TY_CXX_AMP));
+
+      IsActive = true;
+      return ABRT_Success;
+    }
+
+    void appendTopLevelActions(ActionList &AL) override {
+      for (unsigned I = 0, E = DeviceActions.size(); I != E; ++I) {
+        auto A = DeviceActions[I];
+        OffloadAction::DeviceDependences Dep;
+        Dep.add(*A, *ToolChains.front(), ""/*CudaArchToString(BoundArch)*/, Action::OFK_HCC);
+        AL.push_back(C.MakeAction<OffloadAction>(Dep, A->getType()));
+      }
+      DeviceActions.clear();
+    }
+
+    bool initialize() override {
+      if (!C.hasOffloadToolChain<Action::OFK_HCC>())
+        return false;
+
+      ToolChains.push_back(C.getSingleOffloadToolChain<Action::OFK_HCC>());
+      return false; // no error
+    }
+  };
+
+
   ///
   /// TODO: Add the implementation for other specialized builders here.
   ///
@@ -2213,6 +2269,9 @@ public:
 
     // Create a specialized builder for OpenMP.
     SpecializedBuilders.push_back(new OpenMPActionBuilder(C, Args, Inputs));
+
+    // Create a specialized builder for HCC.
+    SpecializedBuilders.push_back(new HCCActionBuilder(C, Args, Inputs));
 
     //
     // TODO: Build other specialized builders here.
@@ -2807,23 +2866,12 @@ void Driver::BuildJobs(Compilation &C) const {
     }
 
     JobAction *JA = cast<JobAction>(A);
-    // UPGRADE_TBD: FIXME This is hack. Need to find a cleaner way
-    // The line is added so clang -emit-llvm would pick correct toolchain for HCC inputs
-    if (JA && IsCXXAMPBackendJobAction(JA)) {
-      BuildJobsForAction(C, A, C.getSingleOffloadToolChain<Action::OFK_HCC>(),
+    BuildJobsForAction(C, A, &C.getDefaultToolChain(),
                        /*BoundArch*/ StringRef(),
                        /*AtTopLevel*/ true,
                        /*MultipleArchs*/ ArchNames.size() > 1,
                        /*LinkingOutput*/ LinkingOutput, CachedResults,
                        /*TargetDeviceOffloadKind*/ Action::OFK_None);
-    } else {
-      BuildJobsForAction(C, A, &C.getDefaultToolChain(),
-                       /*BoundArch*/ StringRef(),
-                       /*AtTopLevel*/ true,
-                       /*MultipleArchs*/ ArchNames.size() > 1,
-                       /*LinkingOutput*/ LinkingOutput, CachedResults,
-                       /*TargetDeviceOffloadKind*/ Action::OFK_None);
-    }
   }
 
   // If the user passed -Qunused-arguments or there were errors, don't warn
@@ -3208,16 +3256,6 @@ public:
   const Tool *getTool(const ActionList *&Inputs,
                       ActionList &CollapsedOffloadAction) {
 
-    if (IsHCHostAssembleJobAction(BaseAction) ||
-        IsHCKernelAssembleJobAction(BaseAction) ||
-        IsCXXAMPAssembleJobAction(BaseAction) ||
-        IsCXXAMPCPUAssembleJobAction(BaseAction)) {
-      const ToolChain *DeviceTC = C.getSingleOffloadToolChain<Action::OFK_HCC>();
-      assert(DeviceTC && "HCC Device ToolChain is not set.");
-      Inputs = &BaseAction->getInputs();
-      return DeviceTC->SelectTool(*BaseAction);
-    }
-
     //
     // Get the largest chain of actions that we could combine.
     //
@@ -3422,20 +3460,9 @@ InputInfo Driver::BuildJobsForActionNoCache(
     // FIXME: Clean this up.
     bool SubJobAtTopLevel =
         AtTopLevel && (isa<DsymutilJobAction>(A) || isa<VerifyJobAction>(A));
-    // UPGRADE_TBD: Find a better way to check HCC-specific Action objects
-    // Find correct Tool for HCC-specific Actions in HCC ToolChain
-    if (IsCXXAMPBackendJobAction(JA) || IsCXXAMPCPUBackendJobAction(JA) ||
-        IsHCKernelAssembleJobAction(JA) ||
-        IsCXXAMPAssembleJobAction(JA) || IsCXXAMPCPUAssembleJobAction(JA)) {
-      InputInfos.push_back(BuildJobsForAction(
-        C, Input, C.getSingleOffloadToolChain<Action::OFK_HCC>(), BoundArch,
-        SubJobAtTopLevel, MultipleArchs, LinkingOutput, CachedResults,
-        A->getOffloadingDeviceKind()));
-    } else {
-      InputInfos.push_back(BuildJobsForAction(
-        C, Input, TC, BoundArch, SubJobAtTopLevel, MultipleArchs, LinkingOutput,
-        CachedResults, A->getOffloadingDeviceKind()));
-    }
+    InputInfos.push_back(BuildJobsForAction(
+      C, Input, TC, BoundArch, SubJobAtTopLevel, MultipleArchs, LinkingOutput,
+      CachedResults, A->getOffloadingDeviceKind()));
   }
 
   // Always use the first input as the base input.
