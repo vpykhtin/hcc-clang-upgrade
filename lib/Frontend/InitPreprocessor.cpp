@@ -543,6 +543,13 @@ static void InitializePredefinedMacros(const TargetInfo &TI,
   Builder.defineMacro("__KALMAR_CC__", "1");
   Builder.defineMacro("__HCC__", "1");
 
+#define KALMAR_VERSION_MAJOR 1
+#define KALMAR_VERSION_MINOR 0
+#define KALMAR_VERSION_PATCH 16501
+#define KALMAR_VERSION_STRING 1.0.16501.04a69df-04a69df-04a69df
+#define KALMAR_VERSION_WORKWEEK 2
+#define KALMAR_BACKEND HCC_BACKEND_AMDGPU
+
 #define TOSTR2(X) #X
 #define TOSTR(X) TOSTR2(X)
   Builder.defineMacro("__clang_major__", TOSTR(CLANG_VERSION_MAJOR));
